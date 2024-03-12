@@ -26,37 +26,27 @@ name: varchar
 zipcode: int
 opening_date : DateTime
 
-# 1) My hashtag#SQL Approach: 
-#===============
 
-with cte as ( -- Joined the datasets and filtered the second half of the 2021 
-select t1.name , t2.score
-from instacart_stores as t1 
-inner join instacart_reviews as t2 
-on t1.id = t2.store_id 
-where date_part('month', t1.opening_date) > 6 and date_part('year' , t1.opening_date) = 2021) , 
-cte1 as ( -- finding the review types 
-select *, case when score > 5 then 'Positive' else 'Negative' end as review_type 
-from cte ), 
-cte2 as ( -- finding review count for each group
-select name , 
-sum(case when review_type = 'Positive' then 1 else 0 end) as positive_count , 
-sum(case when review_type = 'Negative' then 1 else 0 end) as negative_count , 
-count(1) as group_count
-from cte1
-group by name), cte3 as ( -- finding the ratio of positive reviews with respect to negative review
-select name , round((100.0 * positive_count / group_count),2) as positive_review_ratio , 
-round((100.0 * negative_count / group_count ),2) as negative_review_ratio
-from cte2 
-)  
-#-- filtering the data where negative_review_ratio is more than 20%
-select *
-from cte3 
-where negative_review_ratio > 20
-
-#2) My hashtag#PySpark Approach
+# Pyspark approach
 
 import pyspark
+from pyspark.sql.functions import col, month, year, when, sum, count, round
+df = instacart_reviews.join(instacart_stores, on = (instacart_reviews.store_id == instacart_stores.id), how = 'inner')\
+     .filter((year(col('opening_date')) == 2021) & (month(col('opening_date')) > 6))\
+     .withColumn("review_type" , when(col('score') > 5 , "Positive_Review").otherwise("Negative_Review"))\
+     .groupby(col('name'))\
+     .agg(
+       sum(when(col('review_type') == 'Positive_Review', 1).otherwise(0)).alias("Positive_Review_Count"),
+       sum(when(col('review_type') == 'Negative_Review', 1).otherwise(0)).alias("Negative_Review_Count"),
+       count(col('score')).alias('total_reviews')
+     )\
+     .withColumn('Positive_Review_Percentage', round((col('Positive_Review_Count')*100.0 / col('total_reviews')), 2))\
+     .withColumn('Negative_Review_Percentage', round((col('Negative_Review_Count')* 100 / col('total_reviews')), 2))\
+     .filter(col('Negative_Review_Percentage') > 20)\
+     .select(col('name'), col('Positive_Review_Percentage'), col('Negative_Review_Percentage'))
+
+df.show()
+
 
 
 
